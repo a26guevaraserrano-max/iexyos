@@ -54,6 +54,15 @@ def make_fdt():
     prop("kaslr-seed", bytes(range(8)))
     end_node()
 
+    begin("reserved-memory")
+    prop("#address-cells", word(2))
+    prop("#size-cells", word(1))
+    prop("ranges", b"")
+    begin("xnu-buffer@91000000")
+    prop("reg", word(0) + word(0x91000000) + word(0x200000))
+    end_node()
+    end_node()
+
     begin("memory@80000000")
     prop("device_type", b"memory\0")
     prop("reg", word(0) + word(0x80000000) + word(0x80000000))
@@ -84,13 +93,13 @@ def make_fdt():
     token(9)
 
     rsvmap_offset = 40
-    reserve_map = b"\0" * 16
+    reserve_map = struct.pack(">QQQQ", 0x90000000, 0x100000, 0, 0)
     struct_offset = rsvmap_offset + len(reserve_map)
     strings_offset = struct_offset + len(structure)
     total_size = strings_offset + len(strings)
     header = struct.pack(
         ">10I", FDT_MAGIC, total_size, struct_offset, strings_offset,
-        rsvmap_offset, 17, 16, 0, len(strings), len(structure)
+        rsvmap_offset, 17, 16, 0x100, len(strings), len(structure)
     )
     return bytes(header + reserve_map + structure + strings)
 
@@ -102,9 +111,18 @@ class D2sDtbReportTests(unittest.TestCase):
         self.assertEqual(report["root"]["model"], "Samsung D2 test")
         self.assertEqual(report["chosen"]["bootargs"], "debug=0xc")
         self.assertEqual(report["chosen"]["kaslr-seed"], "present")
+        self.assertEqual(report["boot_cpu_phys"], "0x100")
         self.assertEqual(report["memory"][0]["reg"], [
             {"address": "0x80000000", "size": "0x80000000"}
         ])
+        self.assertEqual(report["memory_reservations"], [
+            {"address": "0x90000000", "size": "0x100000"}
+        ])
+        self.assertEqual(report["reserved_memory"], [{
+            "path": "/reserved-memory/xnu-buffer@91000000",
+            "compatible": [],
+            "reg": [{"address": "0x91000000", "size": "0x200000"}],
+        }])
         self.assertEqual(report["cpus"][0]["reg"], [
             {"address": "0x100", "size": "0x0"}
         ])
@@ -128,6 +146,12 @@ class D2sDtbReportTests(unittest.TestCase):
         blob = bytearray(make_fdt())
         struct.pack_into(">I", blob, 8, len(blob) + 1)
         with self.assertRaisesRegex(FdtError, "out of bounds"):
+            parse_fdt(bytes(blob))
+
+    def test_rejects_unterminated_memory_reservation_map(self):
+        blob = bytearray(make_fdt())
+        struct.pack_into(">QQ", blob, 56, 0x90000000, 0x100000)
+        with self.assertRaisesRegex(FdtError, "unterminated"):
             parse_fdt(bytes(blob))
 
     def test_cli_reads_a_standalone_blob_and_emits_json(self):

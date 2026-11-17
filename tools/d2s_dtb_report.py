@@ -57,7 +57,7 @@ def parse_fdt(data):
 
     header = struct.unpack_from(">10I", data, 0)
     (magic, total_size, struct_offset, strings_offset, rsvmap_offset,
-     version, last_compatible_version, _boot_cpu, strings_size,
+     version, last_compatible_version, boot_cpu, strings_size,
      struct_size) = header
     if magic != FDT_MAGIC:
         raise FdtError("bad FDT magic")
@@ -71,6 +71,27 @@ def parse_fdt(data):
             struct_offset < HEADER_SIZE or struct_end > total_size or
             strings_offset < HEADER_SIZE or strings_end > total_size):
         raise FdtError("FDT structure or strings block is out of bounds")
+
+    map_limit = min(
+        (offset for offset in (struct_offset, strings_offset, total_size)
+         if offset > rsvmap_offset),
+        default=total_size,
+    )
+    memory_reservations = []
+    offset = rsvmap_offset
+    while offset + 16 <= map_limit:
+        address, size = struct.unpack_from(">QQ", data, offset)
+        offset += 16
+        if address == 0 and size == 0:
+            break
+        if address + size > 0x10000000000000000:
+            raise FdtError("FDT memory reservation overflows 64-bit address")
+        memory_reservations.append({
+            "address": hex(address),
+            "size": hex(size),
+        })
+    else:
+        raise FdtError("unterminated FDT memory reservation map")
 
     strings = data[strings_offset:strings_end]
     nodes = []
@@ -213,6 +234,13 @@ def parse_fdt(data):
         prop_strings(node, "device_type") == ["memory"]
     ]
 
+    reserved_memory = [
+        basic_node(node)
+        for node in nodes
+        if node["parent"] is not None and
+        node["parent"]["path"] == "/reserved-memory"
+    ]
+
     cpu_parent = next((node for node in nodes if node["path"] == "/cpus"),
                       None)
     cpus = []
@@ -237,12 +265,15 @@ def parse_fdt(data):
 
     return {
         "fdt_version": version,
+        "boot_cpu_phys": hex(boot_cpu),
         "root": {
             "model": (prop_strings(root, "model") or [None])[0],
             "compatible": prop_strings(root, "compatible"),
         },
         "chosen": chosen_report,
         "memory": memory,
+        "memory_reservations": memory_reservations,
+        "reserved_memory": reserved_memory,
         "cpus": cpus,
         "peripherals": peripherals,
     }

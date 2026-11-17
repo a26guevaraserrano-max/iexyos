@@ -24,6 +24,14 @@ Exynos9825 board configuration. Its product makefile specifies a
 the board as based on `EXYNOS9825`; the SoC device tree is shared under the
 `exynos9820` filename.
 
+The LineageOS build configuration inherited by `d2s` selects Android boot
+image header version 1, a 2048-byte mkbootimg page size, kernel base
+`0x10000000`, and kernel offset `0x8000`. It also configures a separated
+DTBO and builds a `dtb.img`. These are LineageOS build settings; they do not
+prove that the stock Samsung BOOT partition has the same layout or that
+S-Boot enters a replacement image at those addresses. The stock image and
+actual handoff remain unverified.
+
 The shared SoC DTS describes eight CPU nodes with MPIDR affinity values
 `0x0` through `0x5`, then `0x100` and `0x101`. The CPU nodes use
 `enable-method = "psci"`; PSCI is configured for SMC and `CPU_ON` function
@@ -47,6 +55,9 @@ Sources:
 - [LineageOS d2s product makefile](https://github.com/LineageOS/android_device_samsung_d2s/blob/lineage-24.0/lineage_d2s.mk)
 - [LineageOS d2s board configuration](https://github.com/LineageOS/android_device_samsung_d2s/blob/lineage-24.0/BoardConfig.mk)
 - [LineageOS shared Exynos9825 board configuration](https://github.com/LineageOS/android_device_samsung_exynos9820-common/blob/lineage-24.0/BoardConfig9825.mk)
+- [LineageOS inherited Pie-launched boot configuration](https://github.com/LineageOS/android_device_samsung_exynos9820-common/blob/lineage-24.0/BoardConfigPieLaunched.mk)
+- [LineageOS shared boot and separated-DTBO configuration](https://github.com/LineageOS/android_device_samsung_exynos9820-common/blob/lineage-24.0/BoardConfigCommon.mk)
+- [LineageOS shared DTB image build](https://github.com/LineageOS/android_device_samsung_exynos9820-common/blob/lineage-24.0/AndroidBoard.mk)
 - [Exynos9825 D2 overlay](https://github.com/LineageOS/android_kernel_samsung_exynos9820/blob/lineage-24.0/arch/arm64/boot/dts/samsung/exynos9820-d2_eur_open_24.dts)
 - [Exynos9820-family SoC DTS](https://github.com/LineageOS/android_kernel_samsung_exynos9820/blob/lineage-24.0/arch/arm64/boot/dts/exynos/exynos9820.dts)
 - [Mali node DTS](https://github.com/LineageOS/android_kernel_samsung_exynos9820/blob/lineage-24.0/arch/arm64/boot/dts/exynos/exynos9820-mali_common.dtsi)
@@ -54,10 +65,12 @@ Sources:
 ## Implemented in this milestone
 
 `tools/d2s_dtb_report.py` reads a standalone flattened device-tree blob and
-prints JSON for `/chosen`, memory ranges, CPU nodes, and nodes whose names or
-compatible strings indicate GIC, timer, UFS, Mali, display, or serial
-hardware. It validates the FDT header and block boundaries. It does not
-unpack an Android BOOT image or DTBO, access a device, or write any data.
+prints JSON for `/chosen`, the declared boot CPU, memory ranges and
+reservations (including `/reserved-memory` children), CPU nodes, and nodes
+whose names or compatible strings indicate GIC, timer, UFS, Mali, display, or
+serial hardware. It validates the FDT header, block boundaries, and termination
+of the memory-reservation map. It does not unpack an Android BOOT image or
+DTBO, access a device, or write any data.
 
 Run it only on an FDT file already available on the host:
 
@@ -65,10 +78,16 @@ Run it only on an FDT file already available on the host:
 python3 tools/d2s_dtb_report.py d2s.dtb
 ```
 
+These are declarations in the supplied FDT, not proof of the live S-Boot
+handoff. In particular, memory reservations and the DTB boot-CPU field must
+be compared with the target's actual boot evidence before configuring XNU.
+
 ## Blockers before a target boot path
 
-- The Note10+ BOOT image container, DTB/DTBO packaging, kernel load address,
-  entry state, boot arguments, and permitted boot method are not established.
+- The stock Note10+ BOOT image container and DTB/DTBO packaging, effective
+  kernel load/entry state, boot arguments, and permitted boot method are not
+  established. LineageOS build metadata is not evidence of the stock S-Boot
+  handoff.
 - The live boot FDT, actual memory map/reservations, boot CPU MPIDR, exception
   level, page granule, counter frequency, GIC handoff, framebuffer address,
   stride, format, and display-controller handoff have not been verified.
